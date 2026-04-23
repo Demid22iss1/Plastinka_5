@@ -1,16 +1,15 @@
 // @ts-nocheck
 const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
+const Database = require("better-sqlite3");
 const session = require("express-session");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const bcrypt = require("bcryptjs");
 const app = express();
-const db = new sqlite3.Database("./database.sqlite");
+const db = new Database("./database.sqlite");
 db.run("PRAGMA encoding = 'UTF-8'");
 db.run("PRAGMA case_sensitive_like = OFF");
-
 
 // ============================================================
 // НАСТРОЙКИ MIDDLEWARE
@@ -39,7 +38,6 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
-
 // ============================================================
 // СОЗДАНИЕ ПАПОК ДЛЯ ЗАГРУЗКИ ФАЙЛОВ
 // ============================================================
@@ -230,26 +228,6 @@ db.serialize(() => {
         }
     });
 
-    // Добавление дополнительных тестовых пластинок
-    db.get("SELECT COUNT(*) as count FROM products", [], (err, result) => {
-        if (!err && result.count < 8) {
-            const extraProducts = [
-                ['Kind of Blue', 'Miles Davis', 45, 'kind-of-blue.png', null, 'Классический джазовый альбом', 'Jazz', '1959'],
-                ['Random Access Memories', 'Daft Punk', 38, 'ram.png', null, 'Электронный шедевр', 'Electronic', '2013'],
-                ['The Wall', 'Pink Floyd', 42, 'the-wall.png', null, 'Рок-опера', 'Rock', '1979'],
-                ['Back in Black', 'AC/DC', 35, 'back-in-black.png', null, 'Хард-рок', 'Rock', '1980'],
-                ['The Velvet Underground', 'The Velvet Underground', 40, 'velvet.png', null, 'Альтернативный рок', 'Rock', '1967'],
-                ['A Love Supreme', 'John Coltrane', 50, 'love-supreme.png', null, 'Джаз', 'Jazz', '1965'],
-                ['Discovery', 'Daft Punk', 36, 'discovery.png', null, 'Французский хаус', 'Electronic', '2001'],
-                ['Lateralus', 'Tool', 44, 'lateralus.png', null, 'Прогрессивный метал', 'Rock', '2001']
-            ];
-            const stmt = db.prepare("INSERT INTO products (name, artist, price, image, audio, description, genre, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            extraProducts.forEach(p => stmt.run(p));
-            stmt.finalize();
-            console.log("📀 Добавлены дополнительные тестовые пластинки");
-        }
-    });
-
     // Создание администратора
     db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
         if (!err && result.count === 0) {
@@ -260,12 +238,13 @@ db.serialize(() => {
     });
 
     // Добавление колонки telegram_id в таблицу users
-db.run(`ALTER TABLE users ADD COLUMN telegram_id INTEGER`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-        console.log("⚠️ Колонка telegram_id уже существует или ошибка:", err.message);
-    } else if (!err) {
-        console.log("✅ Добавлена колонка telegram_id");
-    }
+    db.run(`ALTER TABLE users ADD COLUMN telegram_id INTEGER`, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+            console.log("⚠️ Колонка telegram_id уже существует или ошибка:", err.message);
+        } else if (!err) {
+            console.log("✅ Добавлена колонка telegram_id");
+        }
+    });
 });
 
 // Telegram авторизация API
@@ -297,7 +276,6 @@ app.post("/api/telegram-auth", express.json(), (req, res) => {
             const defaultPassword = Math.random().toString(36).substring(2, 15);
             const hash = bcrypt.hashSync(defaultPassword, 10);
             
-            // Сохраняем фото URL если есть
             const avatarFile = photo_url ? null : 'default-avatar.png';
             
             db.run(
@@ -321,7 +299,6 @@ app.post("/api/telegram-auth", express.json(), (req, res) => {
             );
         }
     });
-});
 });
 
 // ============================================================
@@ -381,7 +358,7 @@ app.get("/api/favorites/count", requireAuth, (req, res) => {
     });
 });
 
-// API для получения списка избранного (новый endpoint для модального окна)
+// API для получения списка избранного
 app.get("/api/favorites/list", requireAuth, (req, res) => {
     const userId = req.session.user.id;
     
@@ -445,7 +422,7 @@ app.get("/api/favorites/list", requireAuth, (req, res) => {
     });
 });
 
-// API для удаления из избранного (для модального окна)
+// API для удаления из избранного
 app.post("/api/favorites/remove", requireAuth, (req, res) => {
     const userId = req.session.user.id;
     const { productId, type } = req.body;
@@ -461,7 +438,7 @@ app.post("/api/favorites/remove", requireAuth, (req, res) => {
     });
 });
 
-// Исправленный API для избранного
+// API для переключения избранного
 app.post("/api/favorites/toggle", requireAuth, express.json(), (req, res) => {
     const { id } = req.body;
     const userId = req.session.user.id;
@@ -765,13 +742,17 @@ app.get("/", (req, res) => {
                         `;
                         products.forEach(product => {
                             content += `
-                                <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.name)}" data-product-artist="${escapeHtml(product.artist)}" data-product-price="${product.price}" data-product-image="/uploads/${product.image}" data-product-description="${escapeHtml(product.description || 'Нет описания')}" data-product-genre="${escapeHtml(product.genre || 'Rock')}" data-product-year="${escapeHtml(product.year || '1970')}" data-product-audio="${product.audio || ''}">
-                                    <div class="product-image">
-                                        <img src="/uploads/${product.image}" alt="${escapeHtml(product.name)}">
-                                        <div class="vinyl-overlay">
-                                            <img src="/photo/plastinka-audio.png" class="vinyl-icon">
-                                        </div>
-                                    </div>
+                                <div class="product-card" 
+                            data-product-id="${product.id}" 
+                            data-product-name="${escapeHtml(product.name)}" 
+                            data-product-artist="${escapeHtml(product.artist)}" 
+                            data-product-price="${product.price}" 
+                            data-product-image="/uploads/${product.image}" 
+                            data-product-description="${escapeHtml(product.description || 'Нет описания')}" 
+                            data-product-genre="${escapeHtml(product.genre || 'Rock')}" 
+                            data-product-year="${escapeHtml(product.year || '1970')}" 
+                            data-product-audio="${product.audio || ''}"
+                            onclick="showProductModal(${product.id}, '${escapeHtml(product.name)}', '${escapeHtml(product.artist)}', ${product.price}, '/uploads/${product.image}', '${escapeHtml(product.description || 'Нет описания')}', '${escapeHtml(product.genre || 'Rock')}', '${escapeHtml(product.year || '1970')}', '${product.audio || ''}')">
                                     <div class="product-info">
                                         <div class="product-name">${escapeHtml(product.name)}</div>
                                         <div class="product-artist">${escapeHtml(product.artist)}</div>
@@ -841,7 +822,7 @@ app.get("/", (req, res) => {
                     } else {
                         let productHTML = "";
                         products.forEach(product => {
-                            productHTML += `
+                            content  += `
 <div class="benefit" 
      data-product-id="${product.id}"
      data-product-name="${escapeHtml(product.name)}"
@@ -3736,26 +3717,49 @@ app.get("/catalog", (req, res) => {
                         content += `<div class="empty-cart-state"><div class="empty-cart-icon">🎵</div><h3 class="empty-cart-title">В каталоге пока пусто</h3><p class="empty-cart-text">Пластинки скоро появятся. Загляните позже!</p><a href="/" class="empty-cart-btn">На главную</a></div>`;
                     } else {
                         content += `<div class="products-grid">`;
-                        products.forEach(p => {
-                            const coverImage = p.image ? `/uploads/${p.image}` : DEFAULT_COVER;
-                            content += `
-                            <div class="product-card" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-artist="${escapeHtml(p.artist)}" data-price="${p.price}" data-image="${coverImage}" data-description="${escapeHtml(p.description || 'Нет описания')}" data-genre="${escapeHtml(p.genre || 'Rock')}" data-year="${escapeHtml(p.year || '1970')}" data-audio="${p.audio || ''}">
-                                <div class="product-image">
-                                    <img src="${coverImage}" onerror="this.src='${DEFAULT_COVER}'">
-                                    <div class="vinyl-overlay"><img src="/photo/plastinka-audio.png" class="vinyl-icon"></div>
-                                </div>
-                                <div class="product-info">
-                                    <div class="product-name">${escapeHtml(p.name)}</div>
-                                    <div class="product-artist">${escapeHtml(p.artist)}</div>
-                                    <div class="rating-stars" data-product-id="${p.id}" data-rating="${p.avg_rating}">${generateStarRatingHTML(p.avg_rating, p.votes_count)}</div>
-                                    <div class="product-price">$${p.price}</div>
-                                    <div class="product-actions">
-                                        <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${p.id}')"><i class="fas fa-shopping-cart"></i></button>
-                                        <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${p.id}')"><i class="fas fa-heart"></i></button>
-                                    </div>
-                                </div>
-                            </div>`;
-                        });
+                        products.forEach(product => {
+    const audioUrl = product.audio ? `/audio/${product.audio}` : '';
+    content += `
+        <div class="product-card" 
+             data-product-id="${product.id}" 
+             data-product-name="${escapeHtml(product.name)}" 
+             data-product-artist="${escapeHtml(product.artist)}" 
+             data-product-price="${product.price}" 
+             data-product-image="/uploads/${product.image}" 
+             data-product-description="${escapeHtml(product.description || 'Нет описания')}" 
+             data-product-genre="${escapeHtml(product.genre || 'Rock')}" 
+             data-product-year="${escapeHtml(product.year || '1970')}" 
+             data-product-audio="${product.audio || ''}"
+             data-audio-url="${audioUrl}"
+             onclick="showProductModal(${product.id}, '${escapeHtml(product.name)}', '${escapeHtml(product.artist)}', ${product.price}, '/uploads/${product.image}', '${escapeHtml(product.description || 'Нет описания')}', '${escapeHtml(product.genre || 'Rock')}', '${escapeHtml(product.year || '1970')}', '${product.audio || ''}')"
+             ontouchstart="pressTimer = setTimeout(() => playVinylAudio('${audioUrl}'), 500)"
+             ontouchend="clearTimeout(pressTimer)"
+             ontouchcancel="clearTimeout(pressTimer)">
+            <div class="product-image">
+                <img src="/uploads/${product.image}" alt="${escapeHtml(product.name)}">
+                <div class="vinyl-overlay">
+                    <img src="/photo/plastinka-audio.png" class="vinyl-icon">
+                </div>
+            </div>
+            <div class="product-info">
+                <div class="product-name">${escapeHtml(product.name)}</div>
+                <div class="product-artist">${escapeHtml(product.artist)}</div>
+                <div class="rating-stars" data-product-id="${product.id}" data-rating="${product.avg_rating}">
+                    ${generateStarRatingHTML(product.avg_rating, product.votes_count)}
+                </div>
+                <div class="product-price">$${product.price}</div>
+                <div class="product-actions">
+                    <button class="action-btn" onclick="event.stopPropagation(); addToCartMobile('product_${product.id}')">
+                        <i class="fas fa-shopping-cart"></i>
+                    </button>
+                    <button class="action-btn" onclick="event.stopPropagation(); toggleFavoriteMobile('product_${product.id}')">
+                        <i class="fas fa-heart"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+});
                         content += `</div>`;
                     }
                     
@@ -3812,13 +3816,24 @@ app.get("/catalog", (req, res) => {
                         document.getElementById('productModalDescription').textContent = description;
                         document.getElementById('productModalPrice').innerHTML = price + ' <span>$</span>';
                         
-                        if (audio && audio !== 'null' && audio !== '') {
-                            const playBtn = document.getElementById('productModalPlayBtn');
-                            if (playBtn) {
-                                playBtn.style.display = 'flex';
-                                window.currentAudioFile = audio;
+                        // Воспроизведение при долгом нажатии
+                        if (audio && audio !== '') {
+                            const modalContent = document.querySelector('#productModal .modal-content');
+                            if (modalContent) {
+                                modalContent.ontouchstart = () => {
+                                    pressTimer = setTimeout(() => {
+                                        playVinylAudio('/audio/' + audio);
+                                    }, 500);
+                                };
+                                modalContent.ontouchend = () => {
+                                    clearTimeout(pressTimer);
+                                };
+                                modalContent.ontouchcancel = () => {
+                                    clearTimeout(pressTimer);
+                                };
                             }
-                        } else {
+                        }
+                        else {
                             const playBtn = document.getElementById('productModalPlayBtn');
                             if (playBtn) playBtn.style.display = 'none';
                         }
@@ -4123,31 +4138,32 @@ app.get("/catalog", (req, res) => {
                 }
                 
                 // ДЕСКТОПНАЯ ВЕРСИЯ КАТАЛОГА
-                let productsHTML = "";
-                products.forEach(p => {
-                    const coverImage = p.image ? `/uploads/${p.image}` : DEFAULT_COVER;
-                    productsHTML += `
-                    <div class="catalog-item" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-artist="${escapeHtml(p.artist)}" data-price="${p.price}" data-image="${coverImage}" data-description="${escapeHtml(p.description || 'Нет описания')}" data-genre="${escapeHtml(p.genre || 'Rock')}" data-year="${escapeHtml(p.year || '1970')}" data-audio="${p.audio || ''}">
-                        <div class="image-container vinyl-container">
-                            <img src="${coverImage}" class="catalog-album-cover" onerror="this.src='${DEFAULT_COVER}'">
-                            <img src="/photo/plastinka-audio.png" class="vinyl-disc-small">
-                            ${p.audio ? `<audio class="album-audio" src="/audio/${p.audio}"></audio>` : ''}
-                        </div>
-                        <div class="catalog-item-info">
-                            <div class="catalog-item-name">${escapeHtml(p.name)}</div>
-                            <div class="catalog-item-artist">${escapeHtml(p.artist)}</div>
-                            <div class="rating-stars" data-product-id="${p.id}" data-rating="${p.avg_rating}">${generateStarRatingHTML(p.avg_rating, p.votes_count)}</div>
-                            <div class="catalog-item-price">$${p.price}</div>
-                            <div class="catalog-item-actions">
-                                <form action="/add-to-cart" method="POST">
-                                    <input type="hidden" name="id" value="product_${p.id}">
-                                    <button type="submit" class="catalog-cart-btn"><i class="fas fa-shopping-cart"></i> В корзину</button>
-                                </form>
-                                <button onclick="toggleFavorite('product_${p.id}')" class="catalog-fav-btn"><i class="fas fa-heart"></i></button>
-                            </div>
-                        </div>
-                    </div>`;
-                });
+let productsHTML = "";
+products.forEach(product => {
+    const audioUrl = product.audio ? `/audio/${product.audio}` : '';
+    productsHTML += `
+        <div class="catalog-item" data-id="${product.id}" data-name="${escapeHtml(product.name)}" data-artist="${escapeHtml(product.artist)}" data-price="${product.price}" data-image="/uploads/${product.image}" data-description="${escapeHtml(product.description || 'Нет описания')}" data-genre="${escapeHtml(product.genre || 'Rock')}" data-year="${escapeHtml(product.year || '1970')}" data-audio="${product.audio || ''}">
+            <div class="image-container vinyl-container">
+                <img src="/uploads/${product.image}" class="catalog-album-cover" onerror="this.src='${DEFAULT_COVER}'">
+                <img src="/photo/plastinka-audio.png" class="vinyl-disc-small">
+                ${product.audio ? `<audio class="album-audio" src="/audio/${product.audio}"></audio>` : ''}
+            </div>
+            <div class="catalog-item-info">
+                <div class="catalog-item-name">${escapeHtml(product.name)}</div>
+                <div class="catalog-item-artist">${escapeHtml(product.artist)}</div>
+                <div class="rating-stars" data-product-id="${product.id}" data-rating="${product.avg_rating}">${generateStarRatingHTML(product.avg_rating, product.votes_count)}</div>
+                <div class="catalog-item-price">$${product.price}</div>
+                <div class="catalog-item-actions">
+                    <form action="/add-to-cart" method="POST">
+                        <input type="hidden" name="id" value="product_${product.id}">
+                        <button type="submit" class="catalog-cart-btn"><i class="fas fa-shopping-cart"></i> В корзину</button>
+                    </form>
+                    <button onclick="toggleFavorite('product_${product.id}')" class="catalog-fav-btn"><i class="fas fa-heart"></i></button>
+                </div>
+            </div>
+        </div>
+    `;
+});
                                 
                 res.send(`
 <!DOCTYPE html>
@@ -5888,6 +5904,31 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
         <a href="/profile" class="nav-item ${activeTab === 'profile' ? 'active' : ''}"><i class="fas fa-user"></i><span>Профиль</span></a>
     </nav>
     <script>
+    // ========== АУДИО ДЛЯ МОБИЛЬНОЙ ВЕРСИИ ==========
+    let pressTimer = null;
+    let currentAudio = null;
+
+    function playVinylAudio(audioUrl) {
+        if (!audioUrl || audioUrl === '') {
+            console.log('Нет аудио для воспроизведения');
+            return;
+        }
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+        }
+        currentAudio = new Audio(audioUrl);
+        currentAudio.play().catch(e => console.log('Audio play error:', e));
+    }
+
+    function stopVinylAudio() {
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+            currentAudio = null;
+        }
+    }
+    
     // Инициализация Telegram WebApp
     const tg = window.Telegram?.WebApp;
     let tgUser = null;
@@ -5937,7 +5978,6 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
                     if (data.isNew) {
                         console.log('🆕 Новый пользователь зарегистрирован');
                     }
-                    // Обновляем страницу для отображения авторизованного состояния
                     if (!${!!user}) {
                         window.location.reload();
                     }
@@ -5978,12 +6018,10 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
         setTimeout(() => { if(toast && toast.remove) toast.remove(); }, 3000);
     }
     
-    // Функция для закрытия Mini App (если нужно)
     function closeMiniApp() {
         if (tg) tg.close();
     }
     
-    // Показываем основную кнопку если нужно
     function showMainButton(text, onClick) {
         if (tg) {
             tg.MainButton.setText(text);
@@ -5992,10 +6030,39 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
         }
     }
     
-    // Скрываем основную кнопку
     function hideMainButton() {
         if (tg) tg.MainButton.hide();
     }
+    
+    // Функция для воспроизведения при долгом нажатии на карточку
+    function setupLongPress(element, audioUrl) {
+        if (!element || !audioUrl) return;
+        
+        element.addEventListener('touchstart', function(e) {
+            pressTimer = setTimeout(function() {
+                playVinylAudio(audioUrl);
+            }, 500);
+        });
+        
+        element.addEventListener('touchend', function() {
+            clearTimeout(pressTimer);
+        });
+        
+        element.addEventListener('touchcancel', function() {
+            clearTimeout(pressTimer);
+        });
+    }
+    
+    // Настройка долгого нажатия для всех карточек после загрузки страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        const cards = document.querySelectorAll('.product-card');
+        cards.forEach(function(card) {
+            const audioUrl = card.getAttribute('data-audio-url');
+            if (audioUrl && audioUrl !== '') {
+                setupLongPress(card, audioUrl);
+            }
+        });
+    });
     </script>
     </body>
     </html>`;
@@ -6004,12 +6071,10 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
 // ============================================================
 // ЗАПУСК СЕРВЕРА
 // ============================================================
+// В самом конце файла server.js
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Сервер запущен на http://localhost:${PORT}`);
-    console.log(`👤 Админ: admin / admin123`);
-    console.log(`⭐ Система рейтинга из 5 звёзд с комментариями активна!`);
-    console.log(`🖼️ Пользователи могут менять аватарки с обрезкой!`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
 
 module.exports = app;

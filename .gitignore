@@ -1,11 +1,12 @@
-node_modules/
+# Создай файл .gitignore с таким содержимым:
+echo "node_modules/
 database.sqlite
 *.log
 .DS_Store
+.env
 public/uploads/*
 public/audio/*
 public/avatars/*
 !public/uploads/.gitkeep
 !public/audio/.gitkeep
-!public/avatars/.gitkeep
-.env
+!public/avatars/.gitkeep" > .gitignore
