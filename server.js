@@ -8,8 +8,10 @@ const fs = require("fs");
 const bcrypt = require("bcryptjs");
 const app = express();
 const db = new Database("./database.sqlite");
-db.run("PRAGMA encoding = 'UTF-8'");
-db.run("PRAGMA case_sensitive_like = OFF");
+
+// В better-sqlite3 PRAGMA выполняются через метод .pragma()
+db.pragma('encoding = "UTF-8"');
+db.pragma('case_sensitive_like = OFF');
 
 // ============================================================
 // НАСТРОЙКИ MIDDLEWARE
@@ -6072,9 +6074,10 @@ function renderMobilePage(title, content, user, activeTab = 'home', showNotifica
 // ЗАПУСК СЕРВЕРА
 // ============================================================
 // В самом конце файла server.js
+// Вот так должна выглядеть последняя строка в server.js
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Сервер запущен на порту ${PORT}`);
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
 });
 
 module.exports = app;
