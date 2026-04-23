@@ -1,0 +1,11 @@
+node_modules/
+database.sqlite
+*.log
+.DS_Store
+public/uploads/*
+public/audio/*
+public/avatars/*
+!public/uploads/.gitkeep
+!public/audio/.gitkeep
+!public/avatars/.gitkeep
+.env
