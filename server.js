@@ -7,11 +7,16 @@ const path = require("path");
 const fs = require("fs");
 const bcrypt = require("bcryptjs");
 const app = express();
+
+// Инициализация базы данных
 const db = new Database("./database.sqlite");
 
-// В better-sqlite3 PRAGMA выполняются через метод .pragma()
+// Настройки PRAGMA для better-sqlite3
 db.pragma('encoding = "UTF-8"');
 db.pragma('case_sensitive_like = OFF');
+db.pragma('journal_mode = WAL'); // Опционально, для производительности
+
+console.log("✅ База данных подключена");
 
 // ============================================================
 // НАСТРОЙКИ MIDDLEWARE
